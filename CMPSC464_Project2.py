@@ -1,199 +1,179 @@
+import os
 """
-CMPSC 464 Project 2
+CMPSC 464 Project 2 - CFGs, CNFs, and Feasibility
 Implemented by Gabriel Kaim, Henry Kopp, and Colin Ruark
+Add the file to cfg.txt and input your string when prompted for information about the test case
 """
 
 def parse_grammar(filename):
     """
-    Helper function to parse the grammar file into a dictionary mappings.
-    The file format starts with a number n, followed by n lines of rules.
-    Rules are in the format Variable=RHS_1|RHS_2...
+    Takes in a file, splits it up by line and OR component
+    Uses this information to populate a dictionary with:
+    - Key: Left-hand side nonterminal
+    - Value: List of all possible Right-hand sides
     """
     grammar = {}
+    # Reading in all lines separately
     with open(filename, 'r') as f:
-        #Read all lines and strip newline characters
-        lines = [line.strip() for line in f.readlines()]
-        
-    if not lines:
-        return grammar
-        
-    #The first line contains the number of rules
-    n = int(lines[0])
-    
-    #Process the next n lines containing the grammar rules
-    for i in range(1, min(n + 1, len(lines))):
+        lines = [line for line in f.readlines()]
+
+    #top line doesn't really matter if we know how many lines were craffed in previous step
+    for i in range(1, len(lines)):
         line = lines[i]
-        if not line:
-            continue
-            
-        #Split the variable from its right-hand side choices
-        parts = line.split('=')
-        if len(parts) == 2:
-            var = parts[0].strip()
-            #Split the different choices separated by '|'
-            rhss = parts[1].split('|')
-            
-            #Add to our grammar dictionary
-            if var not in grammar:
-                grammar[var] = []
-            grammar[var].extend(rhss)
-            
+
+        # Find two halves of transition by both sides of the '='
+        rule_parts = line.split('=')
+        if len(rule_parts) == 2:
+            nonterminal = rule_parts[0].strip()
+            # Check all OR components to put them into a transition dictionary
+            right_hand_sides = rule_parts[1].split('|')
+
+            # Adds to dictionary if first non-terminal appearance
+            if nonterminal not in grammar:
+                grammar[nonterminal] = []
+            #otherwise adds to the non-terminal dictionary
+            grammar[nonterminal].extend(right_hand_sides)
+
     return grammar
 
-def is_literal(char):
-    """Check if the character is a literal (a-z, 0-9)"""
-    return ('a' <= char <= 'z') or ('0' <= char <= '9')
+#Checks if value is a terminal 
+def is_terminal(symbol):
+    return ('a' <= symbol <= 'z') or ('0' <= symbol <= '9') or symbol == '$'
 
-def is_variable(char):
-    """Check if the character is a variable (A-Z)"""
-    return 'A' <= char <= 'Z'
+#Checks if value is nonterminal
+def is_nonterminal(symbol):
+    return 'A' <= symbol <= 'Z'
 
-def function1(filename):
+def check_cnf_validity(filename):
     """
-    Takes the grammar file name and outputs 'yes' or 'no' depending on if it in CNF.
-    This does syntax checking. A grammar is in CNF if every rule is of the form:
-    1. A -> BC (two variables, neither can be the start variable S)
-    2. A -> a (one literal, apart from epsilon/$)
-    3. S -> $ (only the start variable S can derive the empty string $)
+    Various Checks:
+    - S is not repeated
+    - All nonterminal -> nonterminal transitions are of the form X -> YZ
+        (Where X, Y, Z are all nonterminals)
+    - All nonterminal -> terminal transitions are of the form X -> x
+        (Where X is nonterminal, x is terminal)
+    - If epsilon exists, it must come directly from S
     """
     grammar = parse_grammar(filename)
-    
-    for var, rhss in grammar.items():
-        #The left hand side must be a single uppercase letter variable
-        if not is_variable(var) or len(var) != 1:
+
+    for nonterminal, right_hand_sides in grammar.items():
+        # Checks if the left hand side is exactly one nonterminal, o.w. reject
+        if not is_nonterminal(nonterminal) or len(nonterminal) != 1:
             return "no"
-            
-        for rhs in rhss:
-            #Case 1: epsilon derivation (represented by $)
-            #Only the start variable S is allowed to directly derive epsilon
-            if rhs == '$':
-                if var != 'S':
+
+        for production in right_hand_sides:
+            # Checks if epsilon comes from S, o.w. rejects
+            if production == '$':
+                if nonterminal != 'S':
                     return "no"
-            
-            #Case 2: single literal derivation (A -> a)
-            elif len(rhs) == 1:
-                #Need to make sure it's a valid literal and not a variable or $
-                if not is_literal(rhs):
+
+            # Checks that all nonterminal -> terminals are of the form X -> x
+            elif len(production) == 1:
+                if not is_terminal(production):
                     return "no"
-            
-            #Case 3: two variable derivation (A -> BC)
-            elif len(rhs) == 2:
-                #Both characters must be variables
-                if not (is_variable(rhs[0]) and is_variable(rhs[1])):
+
+            # Checks that all nonterminal -> nonterminals are of the form X -> YZ, as described in docstring
+            elif len(production) == 2:
+                if not (is_nonterminal(production[0]) and is_nonterminal(production[1])):
                     return "no"
-                #Neither of the variables on the right-hand side can be S
-                if rhs[0] == 'S' or rhs[1] == 'S':
+                if production[0] == 'S' or production[1] == 'S':
                     return "no"
-            
-            #Any other rule format is strictly invalid for CNF
+
+            # Anything outside of the forms provided above auto-reject
             else:
                 return "no"
-                
+
+    # If no failing points are found, accepts
     return "yes"
 
-def function2(filename, string):
+def is_string_in_grammar(filename, string):
     """
-    Takes the grammar file name (grammar will be CNF) and a string, outputs 'yes' or 'no'
-    depending on if the string can be generated by the grammar using a naive algorithm.
-    
-    The naive algorithm relies on the property that any derivation of a string of length n 
-    in CNF requires exactly 2n - 1 steps.
+    If a grammar G is in Chomsky normal form, any derivation of string w of length n≥1 in G has 2n-1 steps.
+        Checks all branches of 2n-1 steps and checks if the string accepts in any branch
+        Exponential Runtime (Important for later calculation)
     """
     grammar = parse_grammar(filename)
-    
-    #Treat the $ character as an explicit empty string
+
+    # How does treating '$' the same as an empty string simplify the rest of the logic?
     if string == "$" or string == "":
-        target_string = ""
-        n = 0
+        target = ""
+        string_length = 0
     else:
-        target_string = string
-        n = len(string)
-        
-    #Standard CNF derivation length is 2n - 1. 
-    #If the string is empty, deriving epsilon takes exactly 1 step (S -> $)
-    if n == 0:
-        target_steps = 1
+        target = string
+        string_length = len(string)
+
+    # Empty strings still need one step to calculate, otherwise docstirng rule applies
+    if string_length == 0:
+        required_derivation_steps = 1
     else:
-        target_steps = 2 * n - 1
-        
-    #We will use Depth-First Search (DFS) with a stack to test all derivations.
-    #The stack will store tuples of (current_working_string, steps_taken_so_far).
-    #We enforce a leftmost derivation, meaning we always try to replace the 
-    #leftmost variable. This guarantees we check all possible final strings 
-    #exactly once, avoiding redundant tree permutations.
-    stack = [("S", 0)]
-    
-    while stack:
-        curr, steps = stack.pop()
-        
-        #Base case: if we've taken the required number of steps, check if we matched the target
-        if steps == target_steps:
-            if curr == target_string:
+        required_derivation_steps = 2 * string_length - 1
+
+    # Starting with empty stack with 0 steps taken (counts to 2n-1)
+    dfs_stack = [("S", 0)]
+
+    while dfs_stack:
+        current_string, steps_taken = dfs_stack.pop()
+
+        # When we're at 2n-1 steps and we've found the target string, accept immediately
+        if steps_taken == required_derivation_steps:
+            if current_string == target:
                 return "yes"
-            continue #We can't exceed the number of allowed steps
-            
-        #Find the first (leftmost) variable in our current string that we can apply a rule to
-        first_var_idx = -1
-        for i, char in enumerate(curr):
-            if is_variable(char):
-                first_var_idx = i
-                break
-                
-        #If there are no variables left but we haven't reached the step count, this derivation is a dead end
-        if first_var_idx == -1:
             continue
-            
-        #Branch out our DFS by applying every possible right-hand side rule for this variable
-        var = curr[first_var_idx]
-        if var in grammar:
-            for rhs in grammar[var]:
-                #If the rule generates $, substitute with empty string, else use the rhs string
-                replacement = "" if rhs == "$" else rhs
-                #Form the new working string
-                next_str = curr[:first_var_idx] + replacement + curr[first_var_idx+1:]
-                #Add it to the stack to explore further
-                stack.append((next_str, steps + 1))
-                
-    #If the stack depletes and we never returned 'yes', the string is NOT in the grammar
+
+        # Finds the first nonterminal for transitions
+        leftmost_nonterminal_index = -1
+        for i, char in enumerate(current_string):
+            if is_nonterminal(char):
+                leftmost_nonterminal_index = i
+                break
+
+        # If there are no nonterminals, this is a dead branch, and continues to try the next branch on the stack
+        if leftmost_nonterminal_index == -1:
+            continue
+
+        # Runs all possible scenarios from the current nonterminal
+        leftmost_nonterminal = current_string[leftmost_nonterminal_index]
+        if leftmost_nonterminal in grammar:
+            for production in grammar[leftmost_nonterminal]:
+                #Adds all plausible next steps in the path to the stack to be evaluated later
+                substitution = "" if production == "$" else production
+                next_derivation = current_string[:leftmost_nonterminal_index] + substitution + current_string[leftmost_nonterminal_index + 1:]
+                dfs_stack.append((next_derivation, steps_taken + 1))
+
+    # If no successful branches found, return 'no'
     return "no"
 
-def function3(filename, string_length):
+def check_search_feasibility(filename, string_length):
     """
-    Takes the grammar file name and a number representing the string length, 
-    outputs 'yes' or 'no' depending on if using function 2 is guaranteed to work 
-    within 1 min given any string of that length.
-    
-    This acts as a sanity check performing a worst-case run time analysis.
+    How do the worst-case branching factor and derivation depth together determine
+    whether the naive DFS in is_string_in_grammar can finish within one minute?
     """
     grammar = parse_grammar(filename)
-    if not grammar:
-        #A grammar with no rules will finish checking instantly
-        return "yes"
-        
-    #Analyze the maximum branching factor at any step in the process.
-    #In the worst case, we expand a variable using all of its possible rules.
-    #So the local branching factor is bounded by the maximum number of rules mapped to one variable.
-    max_branching = max((len(rules) for rules in grammar.values()), default=0)
-    
-    #If the branching factor is 0 or 1, the number of paths doesn't exponentially grow
-    if max_branching <= 1:
-        return "yes"
-        
-    #The number of levels deep our DFS goes is exactly the derivation length (2n - 1)
-    steps = 2 * string_length - 1 if string_length > 0 else 1
-    
-    #So the worst-case number of path derivations we must search is branching_factor ^ steps
-    worst_case_paths = max_branching ** steps
-    
-    #In Python, checking up to 10 million distinct derivations is manageable within a minute
-    #for such a tightly looping DFS strategy. If it vastly exceeds this (like 10^20 paths), 
-    #it fails the guarantee. We set the safety threshold to 10,000,000 for a 1 minute window.
-    threshold = 10_000_000
-    
-    if worst_case_paths <= threshold:
+
+    # For all possible transitions that can be reached during one rule, find the max
+    max_branching_factor = max((len(rules) for rules in grammar.values()), default=0)
+
+    # Calculate the number of steps in a CNF grammar
+    derivation_length = 2 * string_length - 1 if string_length > 0 else 1
+
+    # Checks the total number of branches with 2n-1 steps
+    worst_case_path_count = max_branching_factor ** derivation_length
+
+    # Arbitary value for computation threshold between 
+    path_count_threshold = 10 ** 8
+
+    if worst_case_path_count <= path_count_threshold:
         return "yes"
     else:
         return "no"
 
 if __name__ == "__main__":
-    pass
+    filename = os.path.join(os.path.dirname(__file__), "cfg.txt")
+    input_string = input("Enter a string: ")
+
+    print("Is CNF?")
+    print(check_cnf_validity(filename))
+    print("Is in Grammar?")
+    print(is_string_in_grammar(filename, input_string))
+    print("Is feasible?")
+    print(check_search_feasibility(filename, len(input_string)))
