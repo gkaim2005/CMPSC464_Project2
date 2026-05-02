@@ -2,7 +2,7 @@ import os
 """
 CMPSC 464 Project 2 - CFGs, CNFs, and Feasibility
 Implemented by Gabriel Kaim, Henry Kopp, and Colin Ruark
-Add the file to cfg.txt and input your string when prompted for information about the test case
+Add the CFG to cfg.txt, add the input to input_string.txt, and run for information about the test case
 """
 
 def parse_grammar(filename):
@@ -26,7 +26,7 @@ def parse_grammar(filename):
         if len(rule_parts) == 2:
             nonterminal = rule_parts[0].strip()
             # Check all OR components to put them into a transition dictionary
-            right_hand_sides = rule_parts[1].split('|')
+            right_hand_sides = [rhs.strip() for rhs in rule_parts[1].split('|')]
 
             # Adds to dictionary if first non-terminal appearance
             if nonterminal not in grammar:
@@ -169,11 +169,18 @@ def check_search_feasibility(filename, string_length):
 
 if __name__ == "__main__":
     filename = os.path.join(os.path.dirname(__file__), "cfg.txt")
-    input_string = input("Enter a string: ")
-
+    print(parse_grammar(filename))
     print("Is CNF?")
     print(check_cnf_validity(filename))
-    print("Is in Grammar?")
-    print(is_string_in_grammar(filename, input_string))
+    input_file = os.path.join(os.path.dirname(__file__), "input_string.txt")
+    if os.path.exists(input_file):
+        with open(input_file, 'r') as f:
+            input_string = f.read().strip()
+        print(f"Read input string of length {len(input_string)} from input_string.txt")
+    else:
+        input_string = input("Enter a string: ")
+
     print("Is feasible?")
     print(check_search_feasibility(filename, len(input_string)))
+    print("Is in Grammar?")
+    print(is_string_in_grammar(filename, input_string))
